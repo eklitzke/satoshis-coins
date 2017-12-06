@@ -6,29 +6,7 @@ from typing import Any, Dict, List
 
 from bitcoinrpc.authproxy import AuthServiceProxy
 
-
-class CircularBuffer:
-    def __init__(self, capacity: int) -> None:
-        self.capacity = capacity
-        self.position = 0
-        self.items = []  # type: List[Any]
-
-    def insert(self, item: Any) -> bool:
-        """Insert an item into the buffer.
-
-        Return True if the buffer is full, False otherwise.
-        """
-        full = len(self.items) == self.capacity
-        if full:
-            self.items[self.position] = item
-            self.position = (self.position + 1) % self.capacity
-        else:
-            self.items.append(item)
-        return full
-
-    def tail(self) -> Any:
-        """Get the oldest item in the buffer."""
-        return self.items[self.position]
+DIFFICULTY_INTERVAL = 2016
 
 
 class BlockFetcher:
@@ -36,13 +14,10 @@ class BlockFetcher:
 
     def __init__(self,
                  rpc_connection: AuthServiceProxy,
-                 cutoff_delta: datetime.timedelta,
                  scan_coinbase=False,
                  batch_size=100) -> None:
         self.rpc_connection = rpc_connection
         self.height = 0
-        self.cutoff = None
-        self.cutoff_delta = cutoff_delta
         self.blocks = []  # type: List[Dict[str, Any]]
         self.scan_coinbase = scan_coinbase
         self.batch_size = batch_size
@@ -66,18 +41,12 @@ class BlockFetcher:
 
     def __iter__(self):
         assert self.height == 0
-        self._fetch_blocks()
-        self.cutoff = self.block_time(self.blocks[0]) + self.cutoff_delta
         return self
 
     def __next__(self):
-        assert self.height != 0
         if not self.blocks:
             self._fetch_blocks()
-        block = self.blocks.pop(0)
-        if self.block_time(block) >= self.cutoff:
-            raise StopIteration
-        return block
+        return self.blocks.pop(0)
 
 
 def estimate_hash_rate(difficulty: float, seconds: float) -> float:
@@ -89,11 +58,8 @@ def estimate_hash_rate(difficulty: float, seconds: float) -> float:
     return expected_hashes / seconds
 
 
-def block_reward(block: Dict[str, Any], scan_coinbase: bool) -> float:
+def block_reward(block: Dict[str, Any]) -> float:
     """Get the block reward at a given height."""
-    if not scan_coinbase:
-        epoch = int(block(['height'])) // 210000
-        return 50 * 0.5**epoch
     for tx in block['tx']:
         if any('coinbase' in vin for vin in tx['vin']):
             return sum(float(vout['value']) for vout in tx['vout'])
@@ -103,38 +69,51 @@ def block_reward(block: Dict[str, Any], scan_coinbase: bool) -> float:
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument(
-        '-s',
-        '--scan-coinbase',
+        '-m',
+        '--mining-rewards',
         action='store_true',
-        help='Scan transactions to get coinbase rewards')
+        help='Include mining rewards')
     parser.add_argument(
-        '-d', '--days', type=int, default=400, help='Days to analyze')
+        '-p',
+        '--periods',
+        type=int,
+        default=28,
+        help='Difficulty periods to analyze')
     parser.add_argument('-o', '--output', help='Output file')
     parser.add_argument('url')
     args = parser.parse_args()
 
     info = []
     rpc_connection = AuthServiceProxy(args.url)
-    times = CircularBuffer(2016)
-    cutoff_delta = datetime.timedelta(days=args.days)
-    fetcher = BlockFetcher(rpc_connection, cutoff_delta, args.scan_coinbase)
+    fetcher = BlockFetcher(rpc_connection, args.mining_rewards)
     for block in fetcher:
-        timestamp = fetcher.block_time(block)
-        difficulty = float(block['difficulty'])
-        time_per_block, hash_rate = None, None
-        if times.insert(timestamp):
-            elapsed = (timestamp - times.tail()).total_seconds()
-            time_per_block = elapsed / times.capacity
-            hash_rate = estimate_hash_rate(difficulty, time_per_block)
         height = int(block['height'])
-        info.append({
-            'height': height,
-            'time': int(timestamp.timestamp()),
-            'difficulty': difficulty,
-            'interval': time_per_block,
-            'reward': block_reward(block, args.scan_coinbase),
-            'hashrate': hash_rate,
-        })
+        if height == 0:
+            prev_block = block
+            prev_time = fetcher.block_time(block)
+            reward = 0
+        elif height % DIFFICULTY_INTERVAL == 0:
+            cur_time = fetcher.block_time(block)
+            elapsed_time = (cur_time - prev_time).total_seconds()
+            block_interval = elapsed_time / 2016
+            hash_rate = estimate_hash_rate(
+                float(prev_block['difficulty']), block_interval)
+            data = {
+                'height': height,
+                'time': int(cur_time.timestamp()),
+                'hashrate': hash_rate,
+                'interval': block_interval,
+            }
+            if args.mining_rewards:
+                data['reward'] = block_reward(block)
+                reward = 0.
+            info.append(data)
+            if len(info) >= args.periods:
+                break
+            prev_block = block
+            prev_time = cur_time
+        if args.mining_rewards:
+            reward += block_reward(block)
 
     outfile = open(args.output, 'w') if args.output else sys.stdout
     json.dump(info, outfile)
