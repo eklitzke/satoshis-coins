@@ -22,11 +22,6 @@ class BlockFetcher:
         self.scan_coinbase = scan_coinbase
         self.batch_size = batch_size
 
-    def block_time(self, block: Dict[str, Any]) -> datetime.datetime:
-        """Get the datetime timestamp for a block."""
-        unix_time = int(block['time'])
-        return datetime.datetime.fromtimestamp(unix_time)
-
     def _fetch_blocks(self):
         assert self.blocks == []
         block_hashes = self.rpc_connection.batch_(
@@ -47,6 +42,12 @@ class BlockFetcher:
         if not self.blocks:
             self._fetch_blocks()
         return self.blocks.pop(0)
+
+
+def block_time(block: Dict[str, Any]) -> datetime.datetime:
+    """Get the datetime for a block."""
+    unix_time = int(block['time'])
+    return datetime.datetime.fromtimestamp(unix_time)
 
 
 def estimate_hash_rate(difficulty: float, seconds: float) -> float:
@@ -85,15 +86,14 @@ def main():
 
     info = []
     rpc_connection = AuthServiceProxy(args.url)
-    fetcher = BlockFetcher(rpc_connection, args.mining_rewards)
-    for block in fetcher:
+    for block in BlockFetcher(rpc_connection, args.mining_rewards):
         height = int(block['height'])
         if height == 0:
             prev_block = block
-            prev_time = fetcher.block_time(block)
+            prev_time = block_time(block)
             reward = 0
         elif height % DIFFICULTY_INTERVAL == 0:
-            cur_time = fetcher.block_time(block)
+            cur_time = block_time(block)
             elapsed_time = (cur_time - prev_time).total_seconds()
             block_interval = elapsed_time / DIFFICULTY_INTERVAL
             hash_rate = estimate_hash_rate(
