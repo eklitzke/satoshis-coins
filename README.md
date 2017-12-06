@@ -3,9 +3,10 @@ exports data as JSON.
 
 ## Running
 
-To run this you'll need a local full Bitcoin Core node. Then run `pip install -r
-requirements.txt` (possibly after creating a virtualenv) and run `analyze.py`
-with a URL that points to your Bitcoin node:
+This code is written for Python 3.5+. You'll also need a full Bitcoin Core node.
+To install the runtime dependencies, run `pip install -r requirements.txt`
+(possibly after creating a virtualenv). Afterwards you can run `analyze.py` with
+a URL that points to your Bitcoin node:
 
 ```bash
 # Substitute your own rpc user/password when running this command.

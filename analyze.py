@@ -2,7 +2,7 @@ import argparse
 import json
 import datetime
 import sys
-from typing import Any, Dict, List
+from typing import Any, Dict, List  # noqa
 
 from bitcoinrpc.authproxy import AuthServiceProxy
 
@@ -95,7 +95,7 @@ def main():
         elif height % DIFFICULTY_INTERVAL == 0:
             cur_time = fetcher.block_time(block)
             elapsed_time = (cur_time - prev_time).total_seconds()
-            block_interval = elapsed_time / 2016
+            block_interval = elapsed_time / DIFFICULTY_INTERVAL
             hash_rate = estimate_hash_rate(
                 float(prev_block['difficulty']), block_interval)
             data = {
