@@ -100,7 +100,7 @@ def main():
                 float(prev_block['difficulty']), block_interval)
             data = {
                 'height': height,
-                'time': int(cur_time.timestamp()),
+                'start': int(prev_time.timestamp()),
                 'hashrate': hash_rate,
                 'interval': block_interval,
             }
